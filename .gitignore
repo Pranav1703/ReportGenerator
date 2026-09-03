@@ -1,0 +1,13 @@
+# Binaries
+*.exe
+weeklyReportGenerator
+
+# Environment
+.env
+
+# Reports
+reports/
+
+# IDE
+.vscode/
+.idea/
