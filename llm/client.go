@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"time"
 
 	openrouter "github.com/OpenRouterTeam/go-sdk"
 	"github.com/OpenRouterTeam/go-sdk/models/components"
@@ -10,13 +11,14 @@ import (
 )
 
 type Client struct {
-	sdk *openrouter.OpenRouter
+	sdk   *openrouter.OpenRouter
 	model string
 }
 
 func NewClient(apiKey, model string) *Client {
 	sdk := openrouter.New(
 		openrouter.WithSecurity(apiKey),
+		openrouter.WithTimeout(120*time.Second),
 	)
 	return &Client{
 		sdk:   sdk,
@@ -25,6 +27,23 @@ func NewClient(apiKey, model string) *Client {
 }
 
 func (c *Client) Summarize(ctx context.Context, repoSlug string, commits []string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		}
+
+		result, err := c.doSummarize(ctx, repoSlug, commits)
+		if err == nil && result != "" {
+			return result, nil
+		}
+		lastErr = err
+	}
+
+	return "", fmt.Errorf("LLM failed after 3 attempts: %w", lastErr)
+}
+
+func (c *Client) doSummarize(ctx context.Context, repoSlug string, commits []string) (string, error) {
 	prompt := fmt.Sprintf(`You are a tech lead writing a weekly report for the CEO.
 	Summarize the following development work from the repository "%s" this week.
 	Focus on:
