@@ -78,24 +78,34 @@ func (c *Client) GetWeeklyCommits(ctx context.Context, owner, repo string, since
 	return allCommits, nil
 }
 
-func (c *Client) GetCommitDiff(ctx context.Context, owner, repo, sha string) (string, error) {
+type FileChange struct {
+	Filename  string
+	Status    string
+	Additions int
+	Deletions int
+}
+
+func (c *Client) GetCommitFileChanges(ctx context.Context, owner, repo, sha string) ([]FileChange, error) {
 	commit, _, err := c.client.Repositories.GetCommit(ctx, owner, repo, sha, nil)
 	if err != nil {
-		return "", fmt.Errorf("getting commit %s: %w", sha, err)
+		return nil, fmt.Errorf("getting commit %s: %w", sha, err)
 	}
 
 	if commit.Files == nil {
-		return "", nil
+		return nil, nil
 	}
 
-	var diff strings.Builder
-	for _, file := range commit.Files {
-		if file.Patch != nil {
-			diff.WriteString(fmt.Sprintf("--- %s\n+++ %s\n%s\n\n", file.GetFilename(), file.GetFilename(), *file.Patch))
-		}
+	files := make([]FileChange, 0, len(commit.Files))
+	for _, f := range commit.Files {
+		files = append(files, FileChange{
+			Filename:  f.GetFilename(),
+			Status:    f.GetStatus(),
+			Additions: f.GetAdditions(),
+			Deletions: f.GetDeletions(),
+		})
 	}
 
-	return diff.String(), nil
+	return files, nil
 }
 
 func ParseRepoSlug(slug string) (owner, repo string, err error) {

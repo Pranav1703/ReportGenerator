@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"weeklyReportGenerator/config"
@@ -90,19 +91,14 @@ func run(cmd *cobra.Command, args []string) error {
 
 		commitTexts := make([]string, 0, len(commits))
 		for _, c := range commits {
-			diff, err := ghClient.GetCommitDiff(ctx, owner, repo, c.SHA)
+			files, err := ghClient.GetCommitFileChanges(ctx, owner, repo, c.SHA)
 			if err != nil {
-				fmt.Printf("  Warning: could not fetch diff for %s: %v\n", c.SHA[:8], err)
-				commitTexts = append(commitTexts, fmt.Sprintf("%s (by %s)\n%s", c.Message, c.Author, "  [diff unavailable]"))
+				fmt.Printf("  Warning: could not fetch changes for %s: %v\n", c.SHA[:8], err)
+				commitTexts = append(commitTexts, c.Message)
 				continue
 			}
 
-			truncatedDiff := diff
-			if len(truncatedDiff) > 3000 {
-				truncatedDiff = truncatedDiff[:3000] + "\n... [truncated]"
-			}
-
-			commitTexts = append(commitTexts, fmt.Sprintf("%s (by %s)\n%s", c.Message, c.Author, truncatedDiff))
+			commitTexts = append(commitTexts, formatCommit(c.Message, files))
 		}
 
 		fmt.Printf("Generating AI summary for %s...\n", repoSlug)
@@ -111,7 +107,7 @@ func run(cmd *cobra.Command, args []string) error {
 			log.Printf("Error generating summary for %s: %v", repoSlug, err)
 			summary = fmt.Sprintf("[Summary generation failed: %v]\n\nCommits this week:\n", err)
 			for _, c := range commits {
-				summary += fmt.Sprintf("- %s (by %s)\n", c.Message, c.Author)
+				summary += fmt.Sprintf("- %s\n", c.Message)
 			}
 		}
 
@@ -171,4 +167,16 @@ func calculateWeekRange(offset int, startStr, endStr string) (time.Time, time.Ti
 	friday = time.Date(friday.Year(), friday.Month(), friday.Day(), 23, 59, 59, 0, friday.Location())
 
 	return monday, friday, nil
+}
+
+func formatCommit(msg string, files []gh.FileChange) string {
+	if len(files) == 0 {
+		return msg
+	}
+
+	parts := make([]string, 0, len(files))
+	for _, f := range files {
+		parts = append(parts, fmt.Sprintf("%s %s (+%d -%d)", f.Status, f.Filename, f.Additions, f.Deletions))
+	}
+	return fmt.Sprintf("%s\n  %s", msg, strings.Join(parts, ", "))
 }

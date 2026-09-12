@@ -18,7 +18,7 @@ type Client struct {
 func NewClient(apiKey, model string) *Client {
 	sdk := openrouter.New(
 		openrouter.WithSecurity(apiKey),
-		openrouter.WithTimeout(120*time.Second),
+		openrouter.WithTimeout(300*time.Second),
 	)
 	return &Client{
 		sdk:   sdk,
@@ -44,21 +44,20 @@ func (c *Client) Summarize(ctx context.Context, repoSlug string, commits []strin
 }
 
 func (c *Client) doSummarize(ctx context.Context, repoSlug string, commits []string) (string, error) {
-	prompt := fmt.Sprintf(`You are a tech lead writing a weekly report for the CEO.
-	Summarize the following development work from the repository "%s" this week.
-	Focus on:
-	- Key features and improvements shipped
-	- Bug fixes
-	- Infrastructure or technical debt work
-	- Any notable decisions or changes
-	
-	Keep it concise, professional, and non-technical where possible.
-	Write in bullet points grouped by category.
-	
+	commitsText := formatCommits(commits)
+	const maxInputChars = 20000
+	if len(commitsText) > maxInputChars {
+		commitsText = commitsText[:maxInputChars] + "\n... [input truncated]"
+	}
+
+	prompt := fmt.Sprintf(`You are a tech lead writing a weekly report for a non-technical reader.
+	Summarize this week's work in the repository "%s" in 3-6 bullet points.
+	For each point, give a one-line plain-English description of what changed and why it matters.
+	Focus on features shipped, bug fixes, and infrastructure work.
+	Avoid deep technical jargon; keep it readable but informative.
+
 	Commits and their changes:
-	%s
-	
-	Provide a clear, executive-friendly summary.`, repoSlug, formatCommits(commits))
+	%s`, repoSlug, commitsText)
 
 	res, err := c.sdk.Chat.Send(ctx, components.ChatRequest{
 		Model: openrouter.Pointer(c.model),
