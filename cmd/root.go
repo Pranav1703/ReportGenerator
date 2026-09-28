@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	"weeklyReportGenerator/config"
 	gh "weeklyReportGenerator/github"
 	"weeklyReportGenerator/llm"
+	"weeklyReportGenerator/notify"
 	"weeklyReportGenerator/report"
 
 	"github.com/spf13/cobra"
@@ -20,6 +22,7 @@ var (
 	startDate  string
 	endDate    string
 	outputDir  string
+	emailTo    string
 )
 
 var rootCmd = &cobra.Command{
@@ -40,6 +43,7 @@ func init() {
 	rootCmd.Flags().StringVar(&startDate, "start-date", "", "Override start date (YYYY-MM-DD)")
 	rootCmd.Flags().StringVar(&endDate, "end-date", "", "Override end date (YYYY-MM-DD)")
 	rootCmd.Flags().StringVar(&outputDir, "output", "", "Output directory override")
+	rootCmd.Flags().StringVar(&emailTo, "email", "", "Send the generated report to these email address(es), comma-separated")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -61,6 +65,19 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Generating report for %s to %s\n\n", since.Format("2006-01-02"), until.Format("2006-01-02"))
+
+	filename := fmt.Sprintf("weekly-report-%s-to-%s.pdf",
+		since.Format("2006-01-02"),
+		until.Format("2006-01-02"))
+	outputPath := fmt.Sprintf("%s/%s", cfg.OutputDir, filename)
+
+	if info, err := os.Stat(outputPath); err == nil && !info.IsDir() {
+		fmt.Printf("Report already exists, reusing: %s\n", outputPath)
+		if err := sendEmail(cfg, outputPath, since, until); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+		return nil
+	}
 
 	ghClient := gh.NewClient(cfg.GitHubToken)
 	llmClient := llm.NewClient(cfg.OpenRouterKey, cfg.LLMModel)
@@ -126,17 +143,60 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error creating output directory: %w", err)
 	}
 
-	filename := fmt.Sprintf("weekly-report-%s-to-%s.pdf",
-		since.Format("2006-01-02"),
-		until.Format("2006-01-02"))
-	outputPath := fmt.Sprintf("%s/%s", cfg.OutputDir, filename)
-
 	fmt.Printf("Generating PDF report...\n")
 	if err := report.Generate(summaries, since, until, outputPath); err != nil {
 		return fmt.Errorf("error generating PDF: %w", err)
 	}
 
 	fmt.Printf("Report saved to: %s\n", outputPath)
+
+	if err := sendEmail(cfg, outputPath, since, until); err != nil {
+		log.Printf("Warning: %v", err)
+	}
+
+	return nil
+}
+
+func splitRecipients(raw string) []string {
+	parts := strings.Split(raw, ",")
+	recipients := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			recipients = append(recipients, p)
+		}
+	}
+	return recipients
+}
+
+func sendEmail(cfg *config.Config, outputPath string, since, until time.Time) error {
+	if emailTo == "" {
+		return nil
+	}
+
+	recipients := splitRecipients(emailTo)
+	if len(recipients) == 0 {
+		return fmt.Errorf("no valid recipients in --email value %q", emailTo)
+	}
+
+	smtpCfg := notify.SMTPConfig{
+		Host: cfg.SMTPHost,
+		Port: cfg.SMTPPort,
+		User: cfg.SMTPUser,
+		Pass: cfg.SMTPPass,
+		From: cfg.SMTPFrom,
+	}
+	if smtpCfg.User == "" || smtpCfg.Pass == "" || smtpCfg.From == "" {
+		return fmt.Errorf("SMTP not configured (SMTP_USER, SMTP_PASS, SMTP_FROM missing)")
+	}
+
+	subject := fmt.Sprintf("Weekly Tech Team Report (%s to %s)",
+		since.Format("2006-01-02"), until.Format("2006-01-02"))
+	if err := notify.SendReport(smtpCfg, outputPath, subject, recipients); err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+
+	fmt.Printf("Report emailed to: %s\n", strings.Join(recipients, ", "))
 	return nil
 }
 

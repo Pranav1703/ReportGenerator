@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -14,6 +15,11 @@ type Config struct {
 	OpenRouterKey string
 	LLMModel      string
 	OutputDir     string
+	SMTPHost      string
+	SMTPPort      int
+	SMTPUser      string
+	SMTPPass      string
+	SMTPFrom      string
 }
 
 func Load() (*Config, error) {
@@ -34,12 +40,29 @@ repos := strings.Split(os.Getenv("GITHUB_REPOS"), ",")
 		outputDir = "reports"
 	}
 
+	smtpHost := os.Getenv("SMTP_HOST")
+	if smtpHost == "" {
+		smtpHost = "smtp.gmail.com"
+	}
+
+	smtpPort := 587
+	if p := os.Getenv("SMTP_PORT"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			smtpPort = v
+		}
+	}
+
 	return &Config{
 		GitHubToken:   os.Getenv("GITHUB_TOKEN"),
 		GitHubRepos:   repos,
 		OpenRouterKey: os.Getenv("OPENROUTER_API_KEY"),
 		LLMModel:      model,
 		OutputDir:     outputDir,
+		SMTPHost:      smtpHost,
+		SMTPPort:      smtpPort,
+		SMTPUser:      os.Getenv("SMTP_USER"),
+		SMTPPass:      os.Getenv("SMTP_PASS"),
+		SMTPFrom:      os.Getenv("SMTP_FROM"),
 	}, nil
 }
 
