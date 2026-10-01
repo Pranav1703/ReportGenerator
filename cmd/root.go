@@ -66,7 +66,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Generating report for %s to %s\n\n", since.Format("2006-01-02"), until.Format("2006-01-02"))
 
-	filename := fmt.Sprintf("weekly-report-%s-to-%s.pdf",
+	filename := fmt.Sprintf("report-%s-to-%s.pdf",
 		since.Format("2006-01-02"),
 		until.Format("2006-01-02"))
 	outputPath := fmt.Sprintf("%s/%s", cfg.OutputDir, filename)
