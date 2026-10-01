@@ -50,11 +50,13 @@ func (c *Client) doSummarize(ctx context.Context, repoSlug string, commits []str
 		commitsText = commitsText[:maxInputChars] + "\n... [input truncated]"
 	}
 
-	prompt := fmt.Sprintf(`You are a tech lead writing a weekly report for a non-technical reader.
-	Summarize this week's work in the repository "%s" in 3-6 bullet points.
-	For each point, give a one-line plain-English description of what changed and why it matters.
-	Focus on features shipped, bug fixes, and infrastructure work.
-	Avoid deep technical jargon; keep it readable but informative.
+	prompt := fmt.Sprintf(`You are a tech lead writing a progress report (weekly or monthly) for a non-technical reader.
+	Summarize the work done in the repository "%s" during this reporting period thoroughly and accurately.
+	Group the work into clear sections using markdown headings (e.g. "### New Features", "### Bug Fixes", "### Improvements", "### Infrastructure").
+	Under each section, list every meaningful change as a bullet point.
+	For each bullet, write a plain-English explanation of what changed, why it matters, and what impact it has.
+	Do not compress unrelated changes into a single bullet; cover the work in detail.
+	Avoid deep technical jargon, but keep it substantive and informative rather than superficial.
 
 	Commits and their changes:
 	%s`, repoSlug, commitsText)
