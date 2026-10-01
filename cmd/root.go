@@ -8,17 +8,17 @@ import (
 	"strings"
 	"time"
 
-	"weeklyReportGenerator/config"
-	gh "weeklyReportGenerator/github"
-	"weeklyReportGenerator/llm"
-	"weeklyReportGenerator/notify"
-	"weeklyReportGenerator/report"
+	"reportGenerator/config"
+	gh "reportGenerator/github"
+	"reportGenerator/llm"
+	"reportGenerator/notify"
+	"reportGenerator/report"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	weekOffset int
+	reportType string
 	startDate  string
 	endDate    string
 	outputDir  string
@@ -26,9 +26,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "weeklyReportGenerator",
-	Short: "Generate weekly tech reports from GitHub repos",
-	Long:  "A tool that scans GitHub repos and generates PDF reports with AI-summarized weekly activity.",
+	Use:   "reportGenerator",
+	Short: "Generate tech reports from GitHub repos",
+	Long:  "A tool that scans GitHub repos and generates PDF reports with AI-summarized activity.",
 	RunE:  run,
 }
 
@@ -39,9 +39,9 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Flags().IntVar(&weekOffset, "week-offset", 0, "Weeks back from current (0=this week, 1=last week)")
-	rootCmd.Flags().StringVar(&startDate, "start-date", "", "Override start date (YYYY-MM-DD)")
-	rootCmd.Flags().StringVar(&endDate, "end-date", "", "Override end date (YYYY-MM-DD)")
+	rootCmd.Flags().StringVar(&reportType, "type", "weekly", "Report type: weekly or monthly")
+	rootCmd.Flags().StringVar(&startDate, "start-date", "", "Start date (YYYY-MM-DD)")
+	rootCmd.Flags().StringVar(&endDate, "end-date", "", "End date (YYYY-MM-DD)")
 	rootCmd.Flags().StringVar(&outputDir, "output", "", "Output directory override")
 	rootCmd.Flags().StringVar(&emailTo, "email", "", "Send the generated report to these email address(es), comma-separated")
 }
@@ -59,12 +59,17 @@ func run(cmd *cobra.Command, args []string) error {
 		cfg.OutputDir = outputDir
 	}
 
-	since, until, err := calculateWeekRange(weekOffset, startDate, endDate)
+	title, err := reportTitle(reportType)
+	if err != nil {
+		return err
+	}
+
+	since, until, err := calculateDateRange(startDate, endDate)
 	if err != nil {
 		return fmt.Errorf("date error: %w", err)
 	}
 
-	fmt.Printf("Generating report for %s to %s\n\n", since.Format("2006-01-02"), until.Format("2006-01-02"))
+	fmt.Printf("Generating %s for %s to %s\n\n", title, since.Format("2006-01-02"), until.Format("2006-01-02"))
 
 	filename := fmt.Sprintf("report-%s-to-%s.pdf",
 		since.Format("2006-01-02"),
@@ -73,14 +78,14 @@ func run(cmd *cobra.Command, args []string) error {
 
 	if info, err := os.Stat(outputPath); err == nil && !info.IsDir() {
 		fmt.Printf("Report already exists, reusing: %s\n", outputPath)
-		if err := sendEmail(cfg, outputPath, since, until); err != nil {
+		if err := sendEmail(cfg, outputPath, title, since, until); err != nil {
 			log.Printf("Warning: %v", err)
 		}
 		return nil
 	}
 
 	ghClient := gh.NewClient(cfg.GitHubToken)
-	llmClient := llm.NewClient(cfg.OpenRouterKey, cfg.LLMModel)
+	llmClient := llm.NewClient(cfg.OpenRouterKey, cfg.LLMModel, cfg.LLMReduceModel, cfg.LLMChunkSize)
 	ctx := context.Background()
 
 	var summaries []report.RepoSummary
@@ -93,7 +98,7 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Printf("Fetching commits from %s...\n", repoSlug)
-		commits, err := ghClient.GetWeeklyCommits(ctx, owner, repo, since, until)
+		commits, err := ghClient.GetCommits(ctx, owner, repo, since, until)
 		if err != nil {
 			log.Printf("Error fetching commits for %s: %v", repoSlug, err)
 			continue
@@ -118,11 +123,16 @@ func run(cmd *cobra.Command, args []string) error {
 			commitTexts = append(commitTexts, formatCommit(c.Message, files))
 		}
 
+		if len(commitTexts) > cfg.LLMChunkSize {
+			numChunks := (len(commitTexts) + cfg.LLMChunkSize - 1) / cfg.LLMChunkSize
+			fmt.Printf("Splitting %d commits into %d chunks for %s...\n", len(commitTexts), numChunks, repoSlug)
+		}
+
 		fmt.Printf("Generating AI summary for %s...\n", repoSlug)
 		summary, err := llmClient.Summarize(ctx, repoSlug, commitTexts)
 		if err != nil {
 			log.Printf("Error generating summary for %s: %v", repoSlug, err)
-			summary = fmt.Sprintf("[Summary generation failed: %v]\n\nCommits this week:\n", err)
+			summary = fmt.Sprintf("[Summary generation failed: %v]\n\nCommits:\n", err)
 			for _, c := range commits {
 				summary += fmt.Sprintf("- %s\n", c.Message)
 			}
@@ -144,13 +154,13 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Generating PDF report...\n")
-	if err := report.Generate(summaries, since, until, outputPath); err != nil {
+	if err := report.Generate(summaries, since, until, title, outputPath); err != nil {
 		return fmt.Errorf("error generating PDF: %w", err)
 	}
 
 	fmt.Printf("Report saved to: %s\n", outputPath)
 
-	if err := sendEmail(cfg, outputPath, since, until); err != nil {
+	if err := sendEmail(cfg, outputPath, title, since, until); err != nil {
 		log.Printf("Warning: %v", err)
 	}
 
@@ -169,7 +179,7 @@ func splitRecipients(raw string) []string {
 	return recipients
 }
 
-func sendEmail(cfg *config.Config, outputPath string, since, until time.Time) error {
+func sendEmail(cfg *config.Config, outputPath, title string, since, until time.Time) error {
 	if emailTo == "" {
 		return nil
 	}
@@ -190,8 +200,8 @@ func sendEmail(cfg *config.Config, outputPath string, since, until time.Time) er
 		return fmt.Errorf("SMTP not configured (SMTP_USER, SMTP_PASS, SMTP_FROM missing)")
 	}
 
-	subject := fmt.Sprintf("Weekly Tech Team Report (%s to %s)",
-		since.Format("2006-01-02"), until.Format("2006-01-02"))
+	subject := fmt.Sprintf("%s (%s to %s)",
+		title, since.Format("2006-01-02"), until.Format("2006-01-02"))
 	if err := notify.SendReport(smtpCfg, outputPath, subject, recipients); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
@@ -200,33 +210,32 @@ func sendEmail(cfg *config.Config, outputPath string, since, until time.Time) er
 	return nil
 }
 
-func calculateWeekRange(offset int, startStr, endStr string) (time.Time, time.Time, error) {
-	if startStr != "" && endStr != "" {
-		since, err := time.Parse("2006-01-02", startStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("invalid start-date: %w", err)
-		}
-		until, err := time.Parse("2006-01-02", endStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("invalid end-date: %w", err)
-		}
-		return since, until.Add(24*time.Hour - time.Second), nil
+func reportTitle(reportType string) (string, error) {
+	switch strings.ToLower(reportType) {
+	case "weekly":
+		return "Weekly Tech Team Report", nil
+	case "monthly":
+		return "Monthly Tech Team Report", nil
+	default:
+		return "", fmt.Errorf("invalid report type %q: must be \"weekly\" or \"monthly\"", reportType)
+	}
+}
+
+func calculateDateRange(startStr, endStr string) (time.Time, time.Time, error) {
+	if startStr == "" || endStr == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("please provide a date range using --start-date and --end-date (YYYY-MM-DD)")
 	}
 
-	now := time.Now()
-	weekday := now.Weekday()
-	if weekday == time.Saturday {
-		weekday = 7
+	since, err := time.Parse("2006-01-02", startStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid start-date: %w", err)
+	}
+	until, err := time.Parse("2006-01-02", endStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid end-date: %w", err)
 	}
 
-	daysFromMonday := int(weekday) - int(time.Monday)
-	monday := now.AddDate(0, 0, -daysFromMonday-offset*7)
-	friday := monday.AddDate(0, 0, 4)
-
-	monday = time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, monday.Location())
-	friday = time.Date(friday.Year(), friday.Month(), friday.Day(), 23, 59, 59, 0, friday.Location())
-
-	return monday, friday, nil
+	return since, until.Add(24*time.Hour - time.Second), nil
 }
 
 func formatCommit(msg string, files []gh.FileChange) string {

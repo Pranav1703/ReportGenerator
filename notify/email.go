@@ -27,7 +27,7 @@ func SendReport(cfg SMTPConfig, filePath, subject string, recipients []string) e
 		return fmt.Errorf("invalid recipient: %w", err)
 	}
 	m.Subject(subject)
-	m.SetBodyString(mail.TypeTextPlain, "Here is the weekly tech report.")
+	m.SetBodyString(mail.TypeTextPlain, "Here is the tech report.")
 	m.AttachFile(filePath)
 
 	host := cfg.Host

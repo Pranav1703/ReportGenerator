@@ -34,7 +34,7 @@ func NewClient(token string) *Client {
 	}
 }
 
-func (c *Client) GetWeeklyCommits(ctx context.Context, owner, repo string, since, until time.Time) ([]CommitData, error) {
+func (c *Client) GetCommits(ctx context.Context, owner, repo string, since, until time.Time) ([]CommitData, error) {
 	opts := &github.CommitsListOptions{
 		Since: since,
 		Until: until,

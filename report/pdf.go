@@ -47,13 +47,13 @@ func cleanInlineMarkdown(text string) string {
 	return text
 }
 
-func Generate(summaries []RepoSummary, startDate, endDate time.Time, outputPath string) error {
+func Generate(summaries []RepoSummary, startDate, endDate time.Time, title, outputPath string) error {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.SetAutoPageBreak(true, 20)
 	pdf.AddPage()
 
 	pdf.SetFont("Helvetica", "B", 24)
-	pdf.CellFormat(0, 15, "Weekly Tech Team Report", "", 1, "C", false, 0, "")
+	pdf.CellFormat(0, 15, sanitize(title), "", 1, "C", false, 0, "")
 	pdf.Ln(5)
 
 	pdf.SetFont("Helvetica", "", 12)

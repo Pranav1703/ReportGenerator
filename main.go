@@ -1,6 +1,6 @@
 package main
 
-import "weeklyReportGenerator/cmd"
+import "reportGenerator/cmd"
 
 func main() {
 	cmd.Execute()

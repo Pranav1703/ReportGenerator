@@ -10,16 +10,18 @@ import (
 )
 
 type Config struct {
-	GitHubToken   string
-	GitHubRepos   []string
-	OpenRouterKey string
-	LLMModel      string
-	OutputDir     string
-	SMTPHost      string
-	SMTPPort      int
-	SMTPUser      string
-	SMTPPass      string
-	SMTPFrom      string
+	GitHubToken    string
+	GitHubRepos    []string
+	OpenRouterKey  string
+	LLMModel       string
+	LLMReduceModel string
+	LLMChunkSize   int
+	OutputDir      string
+	SMTPHost       string
+	SMTPPort       int
+	SMTPUser       string
+	SMTPPass       string
+	SMTPFrom       string
 }
 
 func Load() (*Config, error) {
@@ -32,7 +34,19 @@ repos := strings.Split(os.Getenv("GITHUB_REPOS"), ",")
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" {
-		model = "nvidia/nemotron-3-ultra-550b-a55b:free"
+		model = "nvidia/nemotron-3-super-120b-a12b:free"
+	}
+
+	reduceModel := os.Getenv("LLM_REDUCE_MODEL")
+	if reduceModel == "" {
+		reduceModel = model
+	}
+
+	chunkSize := 15
+	if v := os.Getenv("LLM_CHUNK_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			chunkSize = n
+		}
 	}
 
 	outputDir := os.Getenv("REPORT_OUTPUT_DIR")
@@ -53,11 +67,13 @@ repos := strings.Split(os.Getenv("GITHUB_REPOS"), ",")
 	}
 
 	return &Config{
-		GitHubToken:   os.Getenv("GITHUB_TOKEN"),
-		GitHubRepos:   repos,
-		OpenRouterKey: os.Getenv("OPENROUTER_API_KEY"),
-		LLMModel:      model,
-		OutputDir:     outputDir,
+		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
+		GitHubRepos:    repos,
+		OpenRouterKey:  os.Getenv("OPENROUTER_API_KEY"),
+		LLMModel:       model,
+		LLMReduceModel: reduceModel,
+		LLMChunkSize:   chunkSize,
+		OutputDir:      outputDir,
 		SMTPHost:      smtpHost,
 		SMTPPort:      smtpPort,
 		SMTPUser:      os.Getenv("SMTP_USER"),
