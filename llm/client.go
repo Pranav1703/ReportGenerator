@@ -80,12 +80,12 @@ func (c *Client) retry(fn func() (string, error)) (string, error) {
 
 func (c *Client) doSummarize(ctx context.Context, repoSlug string, commits []string) (string, error) {
 	prompt := fmt.Sprintf(`You are a tech lead writing a progress report for a non-technical reader.
-	Summarize the work done in the repository "%s" during this reporting period thoroughly and accurately.
+	Summarize the work done in the repository "%s" during this reporting period.
 	Group the work into clear sections using markdown headings (e.g. "### New Features", "### Bug Fixes", "### Improvements", "### Infrastructure").
-	Under each section, list every meaningful change as a bullet point.
-	For each bullet, write a plain-English explanation of what changed, why it matters, and what impact it has.
-	Do not compress unrelated changes into a single bullet; cover the work in detail.
-	Avoid deep technical jargon, but keep it substantive and informative rather than superficial.
+	Under each section, list the meaningful changes as bullet points.
+	For each bullet, write a plain-English explanation of what changed and why it matters.
+	Cover the important changes in detail, but combine closely related or trivial commits into single bullets.
+	Avoid deep technical jargon, and skip a title, header, or introduction; start directly with the first section.
 
 	Commits and their changes:
 	%s`, repoSlug, truncate(formatCommits(commits)))
@@ -96,10 +96,11 @@ func (c *Client) doSummarize(ctx context.Context, repoSlug string, commits []str
 func (c *Client) summarizeChunk(ctx context.Context, repoSlug string, commits []string, idx, total int) (string, error) {
 	prompt := fmt.Sprintf(`You are a tech lead summarizing a portion of a progress report for a non-technical reader.
 	This is chunk %d of %d for the repository "%s".
-	Summarize ONLY the work described in the commits below as concise, plain-English bullet points.
+	Summarize ONLY the work described in the commits below as plain-English bullet points.
 	Group them into short markdown sections (e.g. "### New Features", "### Bug Fixes", "### Improvements", "### Infrastructure").
-	For each bullet, briefly state what changed and why it matters.
-	Be terse: this output will be merged with other chunks, so do not add introductions or conclusions.
+	For each bullet, state what changed and why it matters.
+	Cover the important changes in detail, but combine closely related or trivial commits into single bullets.
+	This output will be merged with other chunks, so do not add introductions or conclusions.
 
 	Commits and their changes:
 	%s`, idx, total, repoSlug, truncate(formatCommits(commits)))
@@ -117,10 +118,11 @@ func (c *Client) mergeSummaries(ctx context.Context, repoSlug string, chunks []s
 	Below are summaries of separate chunks of work from the repository "%s".
 	Merge them into a single coherent report.
 	Group the work into clear sections using markdown headings (e.g. "### New Features", "### Bug Fixes", "### Improvements", "### Infrastructure").
-	Under each section, list every meaningful change as a bullet point.
-	For each bullet, write a plain-English explanation of what changed, why it matters, and what impact it has.
+	Under each section, list the meaningful changes as bullet points.
+	For each bullet, write a plain-English explanation of what changed and why it matters.
 	Remove duplicates and combine related items from different chunks where appropriate.
-	Avoid deep technical jargon, but keep it substantive and informative rather than superficial.
+	Cover the important changes in detail, but combine closely related or trivial commits into single bullets.
+	Avoid deep technical jargon, and skip a title, header, or introduction; start directly with the first section.
 
 	Chunk summaries:
 	%s`, repoSlug, truncate(b))
